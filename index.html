@@ -3,168 +3,279 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoring Konsumsi Air</title>
+    <title>Water Consumption Monitoring</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; padding: 20px; }
-        .container { max-width: 600px; margin: auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
-        h1 { color: #333; }
-        .data-box { background: #007bff; color: white; padding: 15px; margin: 10px 0; border-radius: 8px; font-size: 20px; }
-        canvas { margin-top: 20px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
-        footer { margin-top: 20px; font-size: 14px; color: #666; }
-        #loading { display: none; margin: 10px; color: #007bff; }
-        .alert { color: red; font-weight: bold; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .data-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            gap: 15px;
+        }
+        .data-box {
+            flex: 1;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        .data-box.alert {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+        .data-title {
+            font-size: 16px;
+            margin-bottom: 5px;
+            opacity: 0.9;
+        }
+        .data-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .chart-container {
+            margin-top: 30px;
+            position: relative;
+            height: 300px;
+        }
+        #loading {
+            text-align: center;
+            padding: 10px;
+            color: #3498db;
+            font-weight: bold;
+            display: none;
+        }
+        #lastUpdate {
+            text-align: right;
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-top: 10px;
+        }
+        .error-message {
+            color: #e74c3c;
+            text-align: center;
+            padding: 10px;
+            font-weight: bold;
+            display: none;
+        }
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #95a5a6;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Monitoring Konsumsi Air</h1>
-        <div id="loading">Loading data...</div>
-        <div class="data-box">Current Flow Rate: <span id="flowRate">0 L/min</span></div>
-        <div class="data-box">Total Water Consumed: <span id="totalWater">0 L</span></div>
-        <div>Last Updated: <span id="lastUpdate">-</span></div>
-
-        <canvas id="flowChart" width="400" height="200"></canvas>
-        <canvas id="totalChart" width="400" height="200"></canvas>
+        <h1>Water Consumption Monitoring</h1>
         
-        <footer>Created by: Adrian Aryaputra (221311003)</footer>
+        <div id="loading">Loading data...</div>
+        <div id="errorMessage" class="error-message"></div>
+        
+        <div class="data-container">
+            <div id="flowBox" class="data-box">
+                <div class="data-title">Current Flow Rate</div>
+                <div id="flowRate" class="data-value">0.00 L/min</div>
+            </div>
+            <div id="totalBox" class="data-box">
+                <div class="data-title">Total Consumption</div>
+                <div id="totalWater" class="data-value">0.00 L</div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="flowChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="totalChart"></canvas>
+        </div>
+        
+        <div id="lastUpdate">Last updated: -</div>
+        <footer>
+            Created by: Adrian Aryaputra (221311003) | Data updates every 2 seconds
+        </footer>
     </div>
 
+    <!-- JavaScript -->
     <script>
-        // ==============================================
-        // Global Variables
-        // ==============================================
+        // Global variables
         let flowChart, totalChart;
-        let timeLabels = [];  // Stores timestamps for chart X-axis
-        let flowData = [];    // Stores flow rate values (L/min)
-        let totalData = [];   // Stores total water values (L)
-        const MAX_DATA_POINTS = 20; // Limits chart history
-
-        // ==============================================
-        // Function: fetchData()
-        // Purpose: Fetches data from ESP32 and updates UI
-        // ==============================================
-        function fetchData() {
-            const API_URL = "http://" + window.location.hostname + ":80/flow"; // Dynamic IP
+        let timeLabels = [];
+        let flowData = [];
+        let totalData = [];
+        const MAX_DATA_POINTS = 20;
+        const API_URL = "get_data.php";
+        
+        const loadingElement = document.getElementById("loading");
+        const errorElement = document.getElementById("errorMessage");
+        const flowBox = document.getElementById("flowBox");
+        
+     
+        function initCharts() {
+            const flowCtx = document.getElementById("flowChart").getContext("2d");
+            const totalCtx = document.getElementById("totalChart").getContext("2d");
             
-            // Show loading indicator
-            document.getElementById("loading").style.display = "block";
-            
-            fetch(API_URL, { 
-                headers: { "Cache-Control": "no-cache" } // Prevent cached responses
-            })
-            .then(response => {
-                if (!response.ok) throw new Error("Network error");
-                return response.json();
-            })
-            .then(data => {
-                // Validate data
-                if (typeof data?.flow !== "number" || typeof data?.total !== "number") {
-                    throw new Error("Invalid data format");
-                }
-
-                // Update displayed values
-                document.getElementById("flowRate").innerText = data.flow.toFixed(2) + " L/min";
-                document.getElementById("totalWater").innerText = data.total.toFixed(2) + " L";
-                document.getElementById("lastUpdate").innerText = new Date().toLocaleTimeString();
-
-                // Add to chart data (limit array size)
-                const currentTime = new Date().toLocaleTimeString();
-                timeLabels.push(currentTime);
-                flowData.push(data.flow);
-                totalData.push(data.total);
-
-                if (timeLabels.length > MAX_DATA_POINTS) {
-                    timeLabels.shift(); // Remove oldest entry
-                    flowData.shift();
-                    totalData.shift();
-                }
-
-                // Update charts
-                updateCharts();
-
-                // Visual alert if flow rate is too high
-                if (data.flow > 10) {
-                    document.getElementById("flowRate").classList.add("alert");
-                } else {
-                    document.getElementById("flowRate").classList.remove("alert");
-                }
-            })
-            .catch(error => {
-                console.error("Error:", error);
-                document.getElementById("flowRate").innerText = "Error: " + error.message;
-            })
-            .finally(() => {
-                document.getElementById("loading").style.display = "none";
-            });
-        }
-
-        // ==============================================
-        // Function: updateCharts()
-        // Purpose: Updates Chart.js charts with new data
-        // ==============================================
-        function updateCharts() {
-            flowChart.data.labels = timeLabels;
-            flowChart.data.datasets[0].data = flowData;
-            flowChart.update();
-
-            totalChart.data.labels = timeLabels;
-            totalChart.data.datasets[0].data = totalData;
-            totalChart.update();
-        }
-
-        // ==============================================
-        // Function: initializeCharts()
-        // Purpose: Sets up Chart.js when page loads
-        // ==============================================
-        function initializeCharts() {
-            const ctx1 = document.getElementById("flowChart").getContext("2d");
-            const ctx2 = document.getElementById("totalChart").getContext("2d");
-
-            // Flow Rate Chart
-            flowChart = new Chart(ctx1, {
-                type: "line",
+            flowChart = new Chart(flowCtx, {
+                type: 'line',
                 data: {
                     labels: timeLabels,
                     datasets: [{
-                        label: "Flow Rate (L/min)",
-                        backgroundColor: "rgba(0, 123, 255, 0.2)",
-                        borderColor: "#007bff",
+                        label: 'Flow Rate (L/min)',
                         data: flowData,
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 2,
+                        tension: 0.4,
                         fill: true
                     }]
                 },
                 options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
                     scales: {
-                        y: { min: 0 } // Force y-axis to start at 0
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'L/min'
+                            }
+                        }
                     }
                 }
             });
-
-            // Total Consumption Chart
-            totalChart = new Chart(ctx2, {
-                type: "line",
+            
+            totalChart = new Chart(totalCtx, {
+                type: 'line',
                 data: {
                     labels: timeLabels,
                     datasets: [{
-                        label: "Total Water Consumed (L)",
-                        backgroundColor: "rgba(255, 99, 132, 0.2)",
-                        borderColor: "#ff6384",
+                        label: 'Total Consumption (L)',
                         data: totalData,
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 2,
+                        tension: 0.4,
                         fill: true
                     }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Liters'
+                            }
+                        }
+                    }
                 }
             });
         }
+        
+        async function fetchData() {
+            try {
+                showLoading(true);
+                hideError();
+                
+                const response = await fetch(API_URL, {
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data || typeof data.flow !== 'number' || typeof data.total !== 'number') {
+                    throw new Error('Invalid data format received');
+                }
+                
+                updateDashboard(data);
+            } catch (error) {
+                showError(error.message);
+                console.error('Fetch error:', error);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        function updateDashboard(data) {
+            document.getElementById("flowRate").textContent = data.flow.toFixed(2) + " L/min";
+            document.getElementById("totalWater").textContent = data.total.toFixed(2) + " L";
+            document.getElementById("lastUpdate").textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+            
+            if (data.flow > 10) {
+                flowBox.classList.add("alert");
+            } else {
+                flowBox.classList.remove("alert");
+            }
 
-        // ==============================================
-        // On Page Load: Initialize charts and start polling
-        // ==============================================
-        window.onload = function () {
-            initializeCharts();
-            fetchData(); // Fetch immediately
-            setInterval(fetchData, 2000); // Then every 2 seconds
-        };
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            timeLabels.push(now);
+            flowData.push(data.flow);
+            totalData.push(data.total);
+            
+            if (timeLabels.length > MAX_DATA_POINTS) {
+                timeLabels.shift();
+                flowData.shift();
+                totalData.shift();
+            }
+            
+
+            flowChart.data.labels = timeLabels;
+            flowChart.data.datasets[0].data = flowData;
+            flowChart.update();
+            
+            totalChart.data.labels = timeLabels;
+            totalChart.data.datasets[0].data = totalData;
+            totalChart.update();
+        }
+        
+        function showLoading(show) {
+            loadingElement.style.display = show ? 'block' : 'none';
+        }
+        
+        function showError(message) {
+            errorElement.textContent = `Error: ${message}`;
+            errorElement.style.display = 'block';
+        }
+        
+        function hideError() {
+            errorElement.style.display = 'none';
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            fetchData();
+            setInterval(fetchData, 2000);
+        });
     </script>
 </body>
 </html>
