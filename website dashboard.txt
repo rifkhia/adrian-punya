@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Konsumsi Air</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; padding: 20px; }
+        .container { max-width: 600px; margin: auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
+        h1 { color: #333; }
+        .data-box { background: #007bff; color: white; padding: 15px; margin: 10px 0; border-radius: 8px; font-size: 20px; }
+        canvas { margin-top: 20px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
+        footer { margin-top: 20px; font-size: 14px; color: #666; }
+        #loading { display: none; margin: 10px; color: #007bff; }
+        .alert { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Monitoring Konsumsi Air</h1>
+        <div id="loading">Loading data...</div>
+        <div class="data-box">Current Flow Rate: <span id="flowRate">0 L/min</span></div>
+        <div class="data-box">Total Water Consumed: <span id="totalWater">0 L</span></div>
+        <div>Last Updated: <span id="lastUpdate">-</span></div>
+
+        <canvas id="flowChart" width="400" height="200"></canvas>
+        <canvas id="totalChart" width="400" height="200"></canvas>
+        
+        <footer>Created by: Adrian Aryaputra (221311003)</footer>
+    </div>
+
+    <script>
+        // ==============================================
+        // Global Variables
+        // ==============================================
+        let flowChart, totalChart;
+        let timeLabels = [];  // Stores timestamps for chart X-axis
+        let flowData = [];    // Stores flow rate values (L/min)
+        let totalData = [];   // Stores total water values (L)
+        const MAX_DATA_POINTS = 20; // Limits chart history
+
+        // ==============================================
+        // Function: fetchData()
+        // Purpose: Fetches data from ESP32 and updates UI
+        // ==============================================
+        function fetchData() {
+            const API_URL = "http://" + window.location.hostname + ":80/flow"; // Dynamic IP
+            
+            // Show loading indicator
+            document.getElementById("loading").style.display = "block";
+            
+            fetch(API_URL, { 
+                headers: { "Cache-Control": "no-cache" } // Prevent cached responses
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("Network error");
+                return response.json();
+            })
+            .then(data => {
+                // Validate data
+                if (typeof data?.flow !== "number" || typeof data?.total !== "number") {
+                    throw new Error("Invalid data format");
+                }
+
+                // Update displayed values
+                document.getElementById("flowRate").innerText = data.flow.toFixed(2) + " L/min";
+                document.getElementById("totalWater").innerText = data.total.toFixed(2) + " L";
+                document.getElementById("lastUpdate").innerText = new Date().toLocaleTimeString();
+
+                // Add to chart data (limit array size)
+                const currentTime = new Date().toLocaleTimeString();
+                timeLabels.push(currentTime);
+                flowData.push(data.flow);
+                totalData.push(data.total);
+
+                if (timeLabels.length > MAX_DATA_POINTS) {
+                    timeLabels.shift(); // Remove oldest entry
+                    flowData.shift();
+                    totalData.shift();
+                }
+
+                // Update charts
+                updateCharts();
+
+                // Visual alert if flow rate is too high
+                if (data.flow > 10) {
+                    document.getElementById("flowRate").classList.add("alert");
+                } else {
+                    document.getElementById("flowRate").classList.remove("alert");
+                }
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                document.getElementById("flowRate").innerText = "Error: " + error.message;
+            })
+            .finally(() => {
+                document.getElementById("loading").style.display = "none";
+            });
+        }
+
+        // ==============================================
+        // Function: updateCharts()
+        // Purpose: Updates Chart.js charts with new data
+        // ==============================================
+        function updateCharts() {
+            flowChart.data.labels = timeLabels;
+            flowChart.data.datasets[0].data = flowData;
+            flowChart.update();
+
+            totalChart.data.labels = timeLabels;
+            totalChart.data.datasets[0].data = totalData;
+            totalChart.update();
+        }
+
+        // ==============================================
+        // Function: initializeCharts()
+        // Purpose: Sets up Chart.js when page loads
+        // ==============================================
+        function initializeCharts() {
+            const ctx1 = document.getElementById("flowChart").getContext("2d");
+            const ctx2 = document.getElementById("totalChart").getContext("2d");
+
+            // Flow Rate Chart
+            flowChart = new Chart(ctx1, {
+                type: "line",
+                data: {
+                    labels: timeLabels,
+                    datasets: [{
+                        label: "Flow Rate (L/min)",
+                        backgroundColor: "rgba(0, 123, 255, 0.2)",
+                        borderColor: "#007bff",
+                        data: flowData,
+                        fill: true
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: { min: 0 } // Force y-axis to start at 0
+                    }
+                }
+            });
+
+            // Total Consumption Chart
+            totalChart = new Chart(ctx2, {
+                type: "line",
+                data: {
+                    labels: timeLabels,
+                    datasets: [{
+                        label: "Total Water Consumed (L)",
+                        backgroundColor: "rgba(255, 99, 132, 0.2)",
+                        borderColor: "#ff6384",
+                        data: totalData,
+                        fill: true
+                    }]
+                }
+            });
+        }
+
+        // ==============================================
+        // On Page Load: Initialize charts and start polling
+        // ==============================================
+        window.onload = function () {
+            initializeCharts();
+            fetchData(); // Fetch immediately
+            setInterval(fetchData, 2000); // Then every 2 seconds
+        };
+    </script>
+</body>
+</html>
